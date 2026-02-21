@@ -1,6 +1,11 @@
-//! By convention, root.zig is the root source file when making a library.
+// src/lib/root.zig
+//! Top level comment
+
+/// By convention, root.zig is the root source file when making a library.
+pub const dotenv = @This();
 const std = @import("std");
 
+/// Buffered print
 pub fn bufferedPrint() !void {
     // Stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
@@ -14,6 +19,7 @@ pub fn bufferedPrint() !void {
     try stdout.flush(); // Don't forget to flush!
 }
 
+/// Add function
 pub fn add(a: i32, b: i32) i32 {
     return a + b;
 }
