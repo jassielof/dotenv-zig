@@ -6,6 +6,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const builtin = @import("builtin");
+
 const SerializeOptions = @import("SerializeOptions.zig");
 const Parser = @import("Parser.zig");
 const ParseOptions = @import("ParseOptions.zig");
@@ -14,7 +16,9 @@ const utils = @import("utils.zig");
 
 const DotEnv = @This();
 
+/// The arena allocator
 arena: std.heap.ArenaAllocator,
+/// The map of entries
 entries: std.StringArrayHashMapUnmanaged([]const u8),
 
 /// Parse dotenv content from an in-memory UTF-8/byte buffer.
@@ -58,7 +62,6 @@ pub fn loadIntoProcess(self: *DotEnv, overwrite: bool) !void {
         try setProcessEnvVar(self.arena.allocator(), kv.key_ptr.*, kv.value_ptr.*);
     }
 }
-const builtin = @import("builtin");
 
 fn setProcessEnvVar(allocator: Allocator, key: []const u8, value: []const u8) !void {
     switch (builtin.os.tag) {

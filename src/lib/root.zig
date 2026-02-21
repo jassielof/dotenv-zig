@@ -1,3 +1,4 @@
+//! Dot env loading and parsing.
 const std = @import("std");
 const builtin = @import("builtin");
 
@@ -20,6 +21,13 @@ pub fn parseFromSlice(allocator: Allocator, input: []const u8, options: ParseOpt
 }
 
 /// Parse dotenv content from file path.
-pub fn parseFromPath(allocator: Allocator, path: []const u8, options: ParseOptions) !DotEnv {
+pub fn parseFromPath(
+    /// The allocator
+    allocator: Allocator,
+    /// The path to the dotenv file
+    path: []const u8,
+    /// Parsing options
+    options: ParseOptions,
+) !DotEnv {
     return DotEnv.parseFromPath(allocator, path, options);
 }

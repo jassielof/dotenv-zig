@@ -1,6 +1,8 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
+
+const builtin = @import("builtin");
+
 const dotenv = @import("dotenv");
 
 fn setEnvForTest(allocator: std.mem.Allocator, key: []const u8, value: []const u8) !void {

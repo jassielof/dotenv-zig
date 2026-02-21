@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "docs",
     });
 
-    const docs_step = b.step("docs", "Generate documentation");
+    const docs_step = b.step("docs", "Generate the documentation");
     docs_step.dependOn(&docs.step);
 
     const tests = b.addTest(.{
