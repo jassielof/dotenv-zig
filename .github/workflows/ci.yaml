@@ -28,8 +28,8 @@ jobs:
       - name: Build
         run: zig build --summary all -Doptimize=ReleaseSafe
 
-      # - name: Test
-      #   run: zig build --summary all tests -Doptimize=ReleaseSafe
+      - name: Tests
+        run: zig build --summary all tests -Doptimize=ReleaseSafe
 
       - name: Build docs
         run: zig build --summary all docs
