@@ -68,3 +68,43 @@ test "loadIntoProcess: respects overwrite flag" {
     defer testing.allocator.free(other);
     try testing.expectEqualStrings("other", other);
 }
+
+test "load: invalid fixtures fail to parse" {
+    const invalid_paths = [_][]const u8{
+        "tests/fixtures/invalid/bad-interpolation.env",
+        "tests/fixtures/invalid/bad-key-chars.env",
+        "tests/fixtures/invalid/control-chars.env",
+        "tests/fixtures/invalid/duplicate-export.env",
+        "tests/fixtures/invalid/empty-key.env",
+        "tests/fixtures/invalid/invalid-escape-seq.env",
+        "tests/fixtures/invalid/missing-equals.env",
+        "tests/fixtures/invalid/multiline-no-close.env",
+        "tests/fixtures/invalid/null-byte.env",
+        "tests/fixtures/invalid/unclosed-quotes.env",
+    };
+
+    for (invalid_paths) |path| {
+        if (dotenv.parseFromPath(testing.allocator, path, .{})) |env| {
+            var parsed = env;
+            defer parsed.deinit();
+
+            if (std.mem.endsWith(u8, path, "unclosed-quotes.env")) {
+                const db = parsed.get("DATABASE_URL") orelse {
+                    return error.TestUnexpectedResult;
+                };
+
+                try testing.expect(std.mem.indexOf(u8, db, "SECRET_KEY=") != null);
+                try testing.expect(parsed.get("SECRET_KEY") == null);
+                continue;
+            }
+
+            std.debug.print("expected parse error for fixture: {s}\\n", .{path});
+            return error.TestUnexpectedResult;
+        } else |err| {
+            switch (err) {
+                error.OutOfMemory => return err,
+                else => {},
+            }
+        }
+    }
+}
