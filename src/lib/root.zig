@@ -1,29 +1,25 @@
-// src/lib/root.zig
-//! Top level comment
-
-/// By convention, root.zig is the root source file when making a library.
-pub const dotenv = @This();
 const std = @import("std");
+const builtin = @import("builtin");
 
-/// Buffered print
-pub fn bufferedPrint() !void {
-    // Stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
+const Allocator = std.mem.Allocator;
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+pub const DotEnv = @import("DotEnv.zig");
+pub const ParseOptions = @import("ParseOptions.zig");
 
-    try stdout.flush(); // Don't forget to flush!
+const enums = @import("enums.zig");
+pub const UndefinedVariableBehavior = enums.UndefinedVariableBehavior;
+pub const InvalidEscapeBehavior = enums.InvalidEscapeBehavior;
+pub const QuoteStyle = enums.QuoteStyle;
+
+const errors = @import("errors.zig");
+pub const DotEnvError = errors.DotEnvError;
+
+/// Parse dotenv content from an in-memory string.
+pub fn parseFromSlice(allocator: Allocator, input: []const u8, options: ParseOptions) !DotEnv {
+    return DotEnv.parseFromSlice(allocator, input, options);
 }
 
-/// Add function
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
+/// Parse dotenv content from file path.
+pub fn parseFromPath(allocator: Allocator, path: []const u8, options: ParseOptions) !DotEnv {
+    return DotEnv.parseFromPath(allocator, path, options);
 }
