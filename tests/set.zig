@@ -3,7 +3,7 @@ const testing = std.testing;
 
 const dotenv = @import("dotenv");
 
-test "set: put and get" {
+test "put and get" {
     var env = try dotenv.parseFromSlice(testing.allocator, "", .{});
     defer env.deinit();
 
@@ -15,14 +15,14 @@ test "set: put and get" {
     try testing.expectEqualStrings("2", env.get("SECOND").?);
 }
 
-test "set: reject invalid key" {
+test "reject invalid key" {
     var env = try dotenv.parseFromSlice(testing.allocator, "", .{});
     defer env.deinit();
 
     try testing.expectError(dotenv.DotEnvError.InvalidKeyCharacter, env.put("1INVALID", "x"));
 }
 
-test "set: serialize preserves insertion order and auto quote strategy" {
+test "serialize preserves insertion order and auto quote strategy" {
     var env = try dotenv.parseFromSlice(testing.allocator, "", .{});
     defer env.deinit();
 
@@ -33,8 +33,9 @@ test "set: serialize preserves insertion order and auto quote strategy" {
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(testing.allocator);
-    const writer = out.writer(testing.allocator);
-    try env.serialize(&writer, .{});
+    var writer: std.Io.Writer.Allocating = .fromArrayList(testing.allocator, &out);
+    try env.serialize(&writer.writer, .{});
+    out = writer.toArrayList();
 
     const text = out.items;
     try testing.expect(std.mem.indexOf(u8, text, "ALPHA=plain\n") != null);
@@ -49,7 +50,7 @@ test "set: serialize preserves insertion order and auto quote strategy" {
     try testing.expect(p_alpha < p_beta and p_beta < p_gamma and p_gamma < p_delta);
 }
 
-test "set: serialize quote override" {
+test "serialize quote override" {
     var env = try dotenv.parseFromSlice(testing.allocator, "", .{});
     defer env.deinit();
 
@@ -57,8 +58,9 @@ test "set: serialize quote override" {
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(testing.allocator);
-    const writer = out.writer(testing.allocator);
-    try env.serialize(&writer, .{ .quote_style = .double });
+    var writer: std.Io.Writer.Allocating = .fromArrayList(testing.allocator, &out);
+    try env.serialize(&writer.writer, .{ .quote_style = .double });
+    out = writer.toArrayList();
 
     try testing.expectEqualStrings("KEY=\"value\"\n", out.items);
 }

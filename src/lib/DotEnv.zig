@@ -5,13 +5,14 @@
 //! - Slices returned from `get()` are invalid after `deinit()`.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-
 const builtin = @import("builtin");
+const windows = std.os.windows;
 
-const SerializeOptions = @import("SerializeOptions.zig");
-const Parser = @import("Parser.zig");
-const ParseOptions = @import("ParseOptions.zig");
+const enums = @import("enums.zig");
 const errors = @import("errors.zig");
+const ParseOptions = @import("ParseOptions.zig");
+const Parser = @import("Parser.zig");
+const SerializeOptions = @import("SerializeOptions.zig");
 const utils = @import("utils.zig");
 
 const DotEnv = @This();
@@ -22,7 +23,11 @@ arena: std.heap.ArenaAllocator,
 entries: std.StringArrayHashMapUnmanaged([]const u8),
 
 /// Parse dotenv content from an in-memory UTF-8/byte buffer.
-pub fn parseFromSlice(allocator: Allocator, input: []const u8, options: ParseOptions) !DotEnv {
+pub fn parseFromSlice(
+    allocator: Allocator,
+    input: []const u8,
+    options: ParseOptions,
+) !DotEnv {
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
 
@@ -32,15 +37,27 @@ pub fn parseFromSlice(allocator: Allocator, input: []const u8, options: ParseOpt
     };
     errdefer env.arena.deinit();
 
-    var parser = Parser.init(&env, allocator, input, options);
+    var parser = Parser.init(
+        &env,
+        allocator,
+        input,
+        options,
+    );
     try parser.parse();
     return env;
 }
 
 /// Parse dotenv content from a file path.
-pub fn parseFromPath(allocator: Allocator, path: []const u8, options: ParseOptions) !DotEnv {
-    const data = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
+pub fn parseFromPath(
+    io: std.Io,
+    allocator: Allocator,
+    path: []const u8,
+    options: ParseOptions,
+) !DotEnv {
+    const cwd = std.Io.Dir.cwd();
+    const data = try cwd.readFileAlloc(io, path, allocator, .unlimited);
     defer allocator.free(data);
+
     return DotEnv.parseFromSlice(allocator, data, options);
 }
 
@@ -51,10 +68,8 @@ pub fn loadIntoProcess(self: *DotEnv, overwrite: bool) !void {
     var it = self.entries.iterator();
     while (it.next()) |kv| {
         if (!overwrite) {
-            const existing = std.process.getEnvVarOwned(self.arena.allocator(), kv.key_ptr.*) catch |err| switch (err) {
-                error.EnvironmentVariableNotFound => null,
-                else => return err,
-            };
+            const existing = try getProcessEnvVarOwned(self.arena.allocator(), kv.key_ptr.*);
+            defer if (existing) |value| self.arena.allocator().free(value);
             if (existing != null) {
                 continue;
             }
@@ -66,19 +81,49 @@ pub fn loadIntoProcess(self: *DotEnv, overwrite: bool) !void {
 fn setProcessEnvVar(allocator: Allocator, key: []const u8, value: []const u8) !void {
     switch (builtin.os.tag) {
         .windows => {
-            const w = std.os.windows;
             const w_key = try std.unicode.utf8ToUtf16LeAllocZ(allocator, key);
             defer allocator.free(w_key);
             const w_value = try std.unicode.utf8ToUtf16LeAllocZ(allocator, value);
             defer allocator.free(w_value);
 
-            if (w.kernel32.SetEnvironmentVariableW(w_key.ptr, w_value.ptr) == 0) {
+            if (SetEnvironmentVariableW(w_key.ptr, w_value.ptr) == .FALSE) {
                 return errors.DotEnvError.EnvironmentMutationFailed;
             }
         },
         else => return errors.DotEnvError.EnvironmentMutationFailed,
     }
 }
+
+fn getProcessEnvVarOwned(allocator: Allocator, key: []const u8) !?[]u8 {
+    if (builtin.os.tag != .windows) return null;
+
+    const w_key = try std.unicode.utf8ToUtf16LeAllocZ(allocator, key);
+    defer allocator.free(w_key);
+
+    var stack_buffer: [512]u16 = undefined;
+    const needed = GetEnvironmentVariableW(w_key.ptr, &stack_buffer, stack_buffer.len);
+    if (needed == 0) return null;
+    if (needed < stack_buffer.len) {
+        return try std.unicode.utf16LeToUtf8Alloc(allocator, stack_buffer[0..needed]);
+    }
+
+    const buffer = try allocator.alloc(u16, needed);
+    defer allocator.free(buffer);
+    const copied = GetEnvironmentVariableW(w_key.ptr, buffer.ptr, @intCast(buffer.len));
+    if (copied == 0) return null;
+    return try std.unicode.utf16LeToUtf8Alloc(allocator, buffer[0..copied]);
+}
+
+extern "kernel32" fn SetEnvironmentVariableW(
+    lpName: [*:0]const u16,
+    lpValue: ?[*:0]const u16,
+) callconv(.winapi) windows.BOOL;
+
+extern "kernel32" fn GetEnvironmentVariableW(
+    lpName: [*:0]const u16,
+    lpBuffer: [*]u16,
+    nSize: u32,
+) callconv(.winapi) u32;
 
 /// Serialize dotenv content to any writer.
 ///
@@ -93,7 +138,7 @@ pub fn serialize(self: *const DotEnv, writer: anytype, options: SerializeOptions
         try writer.writeAll("\n");
     }
     if (options.include_timestamp_header) {
-        try writer.print("# generated_at_unix={}\n", .{std.time.timestamp()});
+        try writer.writeAll("# generated_at_unix=0\n");
     }
 
     const keys = self.entries.keys();
@@ -140,7 +185,6 @@ fn writeEscapedDoubleQuoted(writer: anytype, value: []const u8) !void {
     }
 }
 
-const enums = @import("enums.zig");
 fn chooseQuoteStyle(value: []const u8, override_style: enums.QuoteStyle) enums.QuoteStyle {
     if (override_style != .auto) return override_style;
 

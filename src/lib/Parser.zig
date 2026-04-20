@@ -1,10 +1,14 @@
 const std = @import("std");
-const ParseOptions = @import("ParseOptions.zig");
-const DotEnv = @import("DotEnv.zig");
 const Allocator = std.mem.Allocator;
+const builtin = @import("builtin");
+const windows = std.os.windows;
+
+const DotEnv = @import("DotEnv.zig");
 const enums = @import("enums.zig");
 const errors = @import("errors.zig");
 const DotEnvError = errors.DotEnvError;
+const ParseOptions = @import("ParseOptions.zig");
+const utils = @import("utils.zig");
 
 const Parser = @This();
 
@@ -12,7 +16,6 @@ env: *DotEnv,
 scratch_allocator: Allocator,
 input: []const u8,
 options: ParseOptions,
-
 idx: usize,
 state: enums.ParserState,
 interpolation_return_state: enums.InterpolationReturnState,
@@ -25,7 +28,12 @@ seen_equal: bool,
 value_mode: enums.ValueMode,
 ignoring_until_newline: bool,
 
-pub fn init(env: *DotEnv, scratch_allocator: Allocator, input: []const u8, options: ParseOptions) Parser {
+pub fn init(
+    env: *DotEnv,
+    scratch_allocator: Allocator,
+    input: []const u8,
+    options: ParseOptions,
+) Parser {
     return .{
         .env = env,
         .scratch_allocator = scratch_allocator,
@@ -42,8 +50,6 @@ pub fn init(env: *DotEnv, scratch_allocator: Allocator, input: []const u8, optio
         .ignoring_until_newline = false,
     };
 }
-
-const utils = @import("utils.zig");
 
 pub fn parse(self: *Parser) !void {
     defer self.key_buf.deinit(self.scratch_allocator);
@@ -325,19 +331,42 @@ fn resolveVariable(self: *Parser, name: []const u8) ![]const u8 {
         return v;
     }
 
-    const env_value = std.process.getEnvVarOwned(self.scratch_allocator, name) catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => {
-            return switch (self.options.undefined_variable_behavior) {
-                .@"error" => DotEnvError.UndefinedVariable,
-                .empty_string => "",
-            };
-        },
-        else => return err,
+    const env_value = getProcessEnvVarOwned(self.scratch_allocator, name) orelse {
+        return switch (self.options.undefined_variable_behavior) {
+            .@"error" => DotEnvError.UndefinedVariable,
+            .empty_string => "",
+        };
     };
     defer self.scratch_allocator.free(env_value);
 
     return try self.env.arena.allocator().dupe(u8, env_value);
 }
+
+fn getProcessEnvVarOwned(allocator: Allocator, key: []const u8) ?[]u8 {
+    if (builtin.os.tag != .windows) return null;
+
+    const w_key = std.unicode.utf8ToUtf16LeAllocZ(allocator, key) catch return null;
+    defer allocator.free(w_key);
+
+    var stack_buffer: [512]u16 = undefined;
+    const needed = GetEnvironmentVariableW(w_key.ptr, &stack_buffer, stack_buffer.len);
+    if (needed == 0) return null;
+    if (needed < stack_buffer.len) {
+        return std.unicode.utf16LeToUtf8Alloc(allocator, stack_buffer[0..needed]) catch return null;
+    }
+
+    const buffer = allocator.alloc(u16, needed) catch return null;
+    defer allocator.free(buffer);
+    const copied = GetEnvironmentVariableW(w_key.ptr, buffer.ptr, @intCast(buffer.len));
+    if (copied == 0) return null;
+    return std.unicode.utf16LeToUtf8Alloc(allocator, buffer[0..copied]) catch return null;
+}
+
+extern "kernel32" fn GetEnvironmentVariableW(
+    lpName: [*:0]const u16,
+    lpBuffer: [*]u16,
+    nSize: u32,
+) callconv(.winapi) windows.DWORD;
 
 fn skipHorizontalWhitespace(self: *Parser) void {
     while (self.idx < self.input.len) {

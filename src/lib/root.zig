@@ -1,18 +1,17 @@
 //! Dot env loading and parsing.
 const std = @import("std");
-
 const Allocator = std.mem.Allocator;
 
 pub const DotEnv = @import("DotEnv.zig");
-pub const ParseOptions = @import("ParseOptions.zig");
-
+pub const parseFromSlice = DotEnv.parseFromSlice;
+pub const parseFromPath = DotEnv.parseFromPath;
 const enums = @import("enums.zig");
 pub const UndefinedVariableBehavior = enums.UndefinedVariableBehavior;
 pub const InvalidEscapeBehavior = enums.InvalidEscapeBehavior;
 pub const QuoteStyle = enums.QuoteStyle;
-
 const errors = @import("errors.zig");
 pub const DotEnvError = errors.DotEnvError;
+pub const ParseOptions = @import("ParseOptions.zig");
 
 /// Controls how the default loader discovers a dotenv file.
 pub const LoadStrategy = enum {
@@ -52,26 +51,13 @@ pub fn dotenv(allocator: Allocator) !DotEnv {
 
 /// Load dotenv file using discovery options.
 pub fn load(allocator: Allocator, options: LoadOptions) !DotEnv {
+    var io_impl: std.Io.Threaded = .init(allocator, .{});
+    defer io_impl.deinit();
+    const io = io_impl.io();
+
     const found = try discoverDotEnvPath(allocator, options);
     defer allocator.free(found);
-    return parseFromPath(allocator, found, options.parse_options);
-}
-
-/// Parse dotenv content from an in-memory string.
-pub fn parseFromSlice(allocator: Allocator, input: []const u8, options: ParseOptions) !DotEnv {
-    return DotEnv.parseFromSlice(allocator, input, options);
-}
-
-/// Parse dotenv content from file path.
-pub fn parseFromPath(
-    /// The allocator
-    allocator: Allocator,
-    /// The path to the dotenv file
-    path: []const u8,
-    /// Parsing options
-    options: ParseOptions,
-) !DotEnv {
-    return DotEnv.parseFromPath(allocator, path, options);
+    return parseFromPath(io, allocator, found, options.parse_options);
 }
 
 fn discoverDotEnvPath(allocator: Allocator, options: LoadOptions) ![]u8 {
@@ -186,9 +172,14 @@ fn findProjectDir(allocator: Allocator, start_dir: []const u8, markers: []const 
 }
 
 fn pathExists(path: []const u8) !bool {
-    std.fs.cwd().access(path, .{}) catch |err| switch (err) {
+    var io_impl: std.Io.Threaded = .init(std.heap.page_allocator, .{});
+    defer io_impl.deinit();
+    const io = io_impl.io();
+
+    std.Io.Dir.cwd().access(io, path, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
+
     return true;
 }
